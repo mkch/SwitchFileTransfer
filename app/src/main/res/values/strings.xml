@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">NS File Transfer</string>
+    <string name="scan">Scan barcode</string>
+    <string name="wrong_qr">Can\'t parse QR code. Please try again.</string>
+    <string name="can_not_connect">Can\'t connect!</string>
+    <string name="lack_of_permission">Lack of permission!</string>
+    <string name="network_unavailable">Network unavailable!</string>
+    <string name="network_error">Network error!</string>
+    <string name="can_not_parse_data">Connection failed. Please try again.</string>
+    <string name="connecting">Connecting……</string>
+    <string name="fmt_can_not_modify_wifi">Can\'t modify the Wi-Fi configuration. Please remove %s from Wi-Fi list manually.</string>
+    <string name="can_not_operate_on_wifi">Failed to connect to Wi-Fi.</string>
+    <string name="can_not_create_file">Can\'t create file!</string>
+    <string name="wifi_is_off">Turn on Wi-Fi first</string>
+    <string name="notification_channel_default">Default</string>
+    <string name="fmt_connecting_to">Connecting to %s ……</string>
+    <string name="error">Error</string>
+    <string name="fmt_remaining">Downloading…… %d left.</string>
+    <string name="default_console_name">Switch console</string>
+    <string name="download_completed">Download completed.</string>
+    <string name="fmt_version" translatable="false">v%s</string>
+</resources>

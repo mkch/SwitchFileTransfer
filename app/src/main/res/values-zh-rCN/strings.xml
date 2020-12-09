@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">NS 文件传输</string>
+    <string name="scan">扫描二维码</string>
+    <string name="wrong_qr">无法读取二维码，请再试一次。</string>
+    <string name="can_not_connect">无法连接！</string>
+    <string name="lack_of_permission">缺少必要的权限！</string>
+    <string name="network_unavailable">网络不可用</string>
+    <string name="network_error">网络错误！</string>
+    <string name="can_not_parse_data">连接失败，请再试一次。</string>
+    <string name="connecting">正在连接……</string>
+    <string name="fmt_can_not_modify_wifi">"无法修改 Wi-Fi 配置。请到系统 Wi-Fi 列表中手工删除 \"%s\"。"</string>
+    <string name="can_not_operate_on_wifi">无法连接 Wi-Fi。</string>
+    <string name="can_not_create_file">创建文件失败！</string>
+    <string name="wifi_is_off">请先打开 Wi-Fi</string>
+    <string name="notification_channel_default">默认</string>
+    <string name="fmt_connecting_to">正在连接 %s……</string>
+    <string name="error">错误</string>
+    <string name="fmt_remaining">正在下载文件…… 还剩 %d 个</string>
+    <string name="default_console_name">Switch 游戏机</string>
+    <string name="download_completed">下载完成</string>
+</resources>
