@@ -7,7 +7,6 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.os.Parcelable;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -28,34 +27,11 @@ import java.util.Objects;
 public class DownloadActivity extends AppCompatActivity {
 
     private RecyclerView list;
-    private TransferService.DownloadItem[] items;
-
-    public static final String KEY_DOWNLOAD_ITEMS = "download_items";
-    public static final String KEY_CONSOLE_NAME = "console_name";
+    private TransferService.DownloadState downloadState;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        CharSequence consoleName;
-        Parcelable[] parcelableItems;
-        if(savedInstanceState != null) {
-            consoleName = savedInstanceState.getCharSequence(KEY_CONSOLE_NAME);
-            parcelableItems = savedInstanceState.getParcelableArray(KEY_DOWNLOAD_ITEMS);
-        } else {
-            consoleName = getIntent().getStringExtra(KEY_CONSOLE_NAME);
-            parcelableItems = getIntent().getParcelableArrayExtra(KEY_DOWNLOAD_ITEMS);
-            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(TransferService.DOWNLOAD_COMPLETED_NOTIFICATION_ID);
-        }
-        if(consoleName != null) {
-            setTitle(consoleName);
-        }
-        if(parcelableItems != null) {
-            items = new TransferService.DownloadItem[parcelableItems.length];
-            for(int i = 0; i < parcelableItems.length; i++) {
-                items[i] = (TransferService.DownloadItem)parcelableItems[i];
-            }
-        }
         Objects.requireNonNull(getSupportActionBar()).setDisplayHomeAsUpEnabled(true);
 
         setContentView(R.layout.activity_download);
@@ -69,13 +45,6 @@ public class DownloadActivity extends AppCompatActivity {
         setContentView(list);
     }
 
-    @Override
-    protected void onSaveInstanceState(@NonNull Bundle outState) {
-        super.onSaveInstanceState(outState);
-        outState.putCharSequence(KEY_CONSOLE_NAME, getTitle());
-        outState.putParcelableArray(KEY_DOWNLOAD_ITEMS, items);
-    }
-
     private TransferService.Binder serviceBinder;
 
     private class ServiceConnection implements android.content.ServiceConnection {
@@ -83,8 +52,10 @@ public class DownloadActivity extends AppCompatActivity {
         public void onServiceConnected(ComponentName name, IBinder service) {
             Log.i("DownloadActivity", "Service onServiceConnected");
             serviceBinder = (TransferService.Binder) service;
+            downloadState = serviceBinder.getDownloadState();
+            list.getAdapter().notifyDataSetChanged();
 
-            if(serviceListener != null) {
+            if (serviceListener != null) {
                 throw new IllegalStateException("service listener was not removed properly.");
             }
             serviceListener = new ServiceListener();
@@ -94,7 +65,7 @@ public class DownloadActivity extends AppCompatActivity {
         @Override
         public void onServiceDisconnected(ComponentName name) {
             Log.i("DownloadActivity", "disconnected");
-            if(serviceListener != null) {
+            if (serviceListener != null) {
                 serviceBinder.removeListener(serviceListener);
                 serviceListener = null;
             }
@@ -106,7 +77,7 @@ public class DownloadActivity extends AppCompatActivity {
     private ServiceConnection serviceConnection;
 
     private void bindTransferService() {
-        if(serviceConnection == null) {
+        if (serviceConnection == null) {
             serviceConnection = new ServiceConnection();
             TransferService.bind(this, serviceConnection);
         }
@@ -121,6 +92,7 @@ public class DownloadActivity extends AppCompatActivity {
     }
 
     private ServiceListener serviceListener;
+
     private class ServiceListener implements TransferService.Listener {
         @Override
         public void onRemoveWifiNetworkError(String ssid) {
@@ -167,33 +139,38 @@ public class DownloadActivity extends AppCompatActivity {
         @Override
         public void onDownloadCompleted() {
             Log.i("DownloadActivity", "onDownloadCompleted");
+            removeDownloadCompletedNotification();
         }
 
         @Override
         public void onStateChanged(TransferService.State state) {
             Log.i("DownloadActivity", "onStateChanged " + state);
-            if(state == TransferService.State.Downloading) {
-                if(serviceBinder != null) {
-                    items = serviceBinder.getDownloadItems();
+            if (state == TransferService.State.Downloading) {
+                if (serviceBinder != null) {
+                    downloadState = serviceBinder.getDownloadState();
                     list.getAdapter().notifyDataSetChanged();
                 }
-                final String consoleName = serviceBinder.getConsoleName();
-                if(consoleName != null) {
-                    setTitle(consoleName);
+                if (downloadState != null) {
+                    setTitle(downloadState.consoleName);
                 }
             }
         }
     }
 
+    private void removeDownloadCompletedNotification() {
+        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(TransferService.DOWNLOAD_COMPLETED_NOTIFICATION_ID);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        removeDownloadCompletedNotification();
         bindTransferService();
     }
 
     @Override
     protected void onPause() {
-        if(serviceBinder != null && serviceListener != null) {
+        if (serviceBinder != null && serviceListener != null) {
             serviceBinder.removeListener(serviceListener);
             serviceListener = null;
         }
@@ -227,8 +204,8 @@ public class DownloadActivity extends AppCompatActivity {
 
         @Override
         public void onBindViewHolder(@NonNull ListViewHolder holder, int position) {
-            final TransferService.DownloadItem item = items[position];
-            final Uri uri = item.fileUri;
+            final TransferService.DownloadItem item = downloadState.items[position];
+            final Uri uri = Uri.parse(item.fileUri);
 
             final View progressBar = holder.view.findViewById(R.id.progressBar);
             final ImageView imageView = holder.view.findViewById(R.id.imageView);
@@ -282,7 +259,7 @@ public class DownloadActivity extends AppCompatActivity {
 
         @Override
         public int getItemCount() {
-            return items == null ? 0 : items.length;
+            return downloadState == null ? 0 : downloadState.items.length;
         }
     }
 }

@@ -12,8 +12,6 @@ import android.net.Network;
 import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
-import android.os.Parcel;
-import android.os.Parcelable;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -27,11 +25,16 @@ import org.json.JSONObject;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.Reader;
+import java.io.Serializable;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
@@ -157,12 +160,8 @@ public class TransferService extends Service {
             TransferService.this.disconnect();
         }
 
-        public String getConsoleName() {
-            return consoleName;
-        }
-
-        public DownloadItem[] getDownloadItems() {
-            return downloadItems;
+        public DownloadState getDownloadState() {
+            return downloadState;
         }
     }
 
@@ -185,6 +184,7 @@ public class TransferService extends Service {
     public void onCreate() {
         Log.i("TransferService", "Service onCreate");
         super.onCreate();
+        downloadState = readDownloadState(this);
         createNotificationChannel();
         changeToState(State.Idle);
     }
@@ -208,18 +208,18 @@ public class TransferService extends Service {
         }
     }
 
-    private void showDownloadCompleteNotification() {
-        final Intent activity = new Intent(getApplicationContext(), DownloadActivity.class);
-        activity.putExtra(DownloadActivity.KEY_CONSOLE_NAME, consoleName);
-        activity.putExtra(DownloadActivity.KEY_DOWNLOAD_ITEMS, downloadItems);
-
+    private void showDownloadCompletedNotification() {
+        Objects.requireNonNull(downloadState);
         final NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NOTIFICATION_CH)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle(consoleName)
+                .setContentTitle(downloadState.consoleName)
                 .setContentText(getString(R.string.download_completed))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setSilent(true)
-                .setContentIntent(PendingIntent.getActivity(getApplicationContext(), 0, activity, 0));
+                .setContentIntent(PendingIntent.getActivity(getApplicationContext(),
+                        0,
+                        new Intent(getApplicationContext(), DownloadActivity.class),
+                        0));
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(DOWNLOAD_COMPLETED_NOTIFICATION_ID, builder.build());
     }
 
@@ -233,16 +233,19 @@ public class TransferService extends Service {
     private void startForegroundWithNotification(final String message) {
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NOTIFICATION_CH)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
-                .setContentTitle(consoleName)
+                .setContentText(message)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setSilent(true);
-        if (message != null) {
-            builder.setContentText(message);
+        if (downloadState != null) {
+            builder.setContentTitle(downloadState.consoleName);
         }
         startForeground(FOREGROUND_NOTIFICATION_ID, builder.build());
     }
 
     private void connect(@NonNull final String ssid, @NonNull final String password) {
+        deleteSavedDownloadState(this);
+        downloadState = null;
+
         changeToState(State.Connecting);
         startForegroundWithNotification(getString(R.string.fmt_connecting_to, ssid));
         Compat.Instance.connect(this, ssid, password, compatListener);
@@ -351,49 +354,67 @@ public class TransferService extends Service {
         return new JsonData(consoleName, urls);
     }
 
-    public static class DownloadItem implements Parcelable {
+    public static class DownloadItem implements Serializable {
+        static final long serialVersionUID = 1L;
+
         static final int STATE_DOWNLOADING = 0;
         static final int STATE_COMPLETED = 1;
         static final int STATE_ERROR = -1;
 
         public final boolean isVideo;
-        public Uri fileUri;
+        public String fileUri;
         public int state = STATE_DOWNLOADING;
 
         public DownloadItem(final boolean isVideo) {
             this.isVideo = isVideo;
         }
+    }
 
-        public int describeContents() {
-            return 0;
-        }
+    public static class DownloadState implements Serializable {
+        static final long serialVersionUID = 1L;
 
-        public void writeToParcel(Parcel out, int flags) {
-            out.writeInt(isVideo ? 1 : 0);
-            out.writeParcelable(fileUri, 0);
-            out.writeInt(state);
-        }
+        final String consoleName;
+        final DownloadItem[] items;
 
-        public static final Parcelable.Creator<DownloadItem> CREATOR
-                = new Parcelable.Creator<DownloadItem>() {
-            public DownloadItem createFromParcel(Parcel in) {
-                return new DownloadItem(in);
-            }
-
-            public DownloadItem[] newArray(int size) {
-                return new DownloadItem[size];
-            }
-        };
-
-        private DownloadItem(Parcel in) {
-            isVideo = in.readInt() == 1;
-            fileUri = in.readParcelable(Uri.class.getClassLoader());
-            state = in.readInt();
+        public DownloadState(final String consoleName, final DownloadItem[] items) {
+            this.consoleName = consoleName;
+            this.items = items;
         }
     }
 
-    private DownloadItem[] downloadItems;
-    private String consoleName;
+    private static final String DOWNLOAD_STATE_SER_FILE_NAME = "download_state.ser";
+
+    private static void writeDownloadState(final Context context, final DownloadState state) {
+        final File f = new File(context.getFilesDir(), DOWNLOAD_STATE_SER_FILE_NAME);
+        try {
+            try (final ObjectOutputStream stream = new ObjectOutputStream(new FileOutputStream(f))) {
+                stream.writeObject(state);
+            }
+        } catch (IOException e) {
+            Log.e("TransferService", "writeDownloadState", e);
+        }
+    }
+
+    private static DownloadState readDownloadState(final Context context) {
+        final File f = new File(context.getFilesDir(), DOWNLOAD_STATE_SER_FILE_NAME);
+        try {
+            try (final ObjectInputStream stream = new ObjectInputStream(new FileInputStream(f))) {
+                return (DownloadState) stream.readObject();
+            }
+        } catch (Exception e) { // Catch all exceptions here. java.io.InvalidClassException etc.
+            Log.i("TransferService", "readDownloadState", e);
+        }
+        return null;
+    }
+
+    private static void deleteSavedDownloadState(final Context context) {
+        if (!new File(context.getFilesDir(), DOWNLOAD_STATE_SER_FILE_NAME).delete()) {
+            Log.i("TransferService", "delete saved download state file failed.");
+        }
+    }
+
+
+    private DownloadState downloadState;
 
     private void startDownload(final String host) {
         executor.execute(() -> {
@@ -423,7 +444,7 @@ public class TransferService extends Service {
                     return;
                 }
 
-                downloadItems = new DownloadItem[jsonData.urls.length];
+                final DownloadItem[] downloadItems = new DownloadItem[jsonData.urls.length];
                 final URL[] urls = new URL[jsonData.urls.length];
                 try {
                     for (int i = 0; i < jsonData.urls.length; i++) {
@@ -439,10 +460,11 @@ public class TransferService extends Service {
                     changeToState(State.Idle);
                     return;
                 }
-                consoleName = jsonData.consoleName;
+                String consoleName = jsonData.consoleName;
                 if (consoleName == null || consoleName.isEmpty()) {
                     consoleName = getString(R.string.default_console_name);
                 }
+                downloadState = new DownloadState(consoleName, downloadItems);
                 changeToState(State.Downloading);
                 startDownload(urls);
             });
@@ -451,13 +473,13 @@ public class TransferService extends Service {
 
     private void startDownload(final URL[] urls) {
         // Should be `int remains = downloadItems.length`, but it will be used in anonymous class.
-        final int[] remains = new int[]{downloadItems.length};
+        final int[] remains = new int[]{downloadState.items.length};
         startForegroundWithNotification(getString(R.string.fmt_remaining, remains[0]));
         for (int i = 0; i < urls.length; i++) {
             final URL url = urls[i];
-            final DownloadItem item = downloadItems[i];
+            final DownloadItem item = downloadState.items[i];
             final int pos = i;
-            item.fileUri = Compat.Instance.createDownloadFile(this, new File(url.getPath()).getName(), item.isVideo);
+            item.fileUri = Compat.Instance.createDownloadFile(this, new File(url.getPath()).getName(), item.isVideo).toString();
             if (item.fileUri == null) {
                 Log.e("download", "can't create file ");
                 for (Listener listener : listeners) {
@@ -472,7 +494,7 @@ public class TransferService extends Service {
 
             executor.execute(() -> {
                 try {
-                    try (OutputStream outputStream = new BufferedOutputStream(getContentResolver().openOutputStream(item.fileUri));
+                    try (OutputStream outputStream = new BufferedOutputStream(getContentResolver().openOutputStream(Uri.parse(item.fileUri)));
                          InputStream inputStream = url.openStream()) {
                         int c = inputStream.read();
                         while (c != -1) {
@@ -491,7 +513,8 @@ public class TransferService extends Service {
                         listener.onDownloadItemStateChanged(pos);
                     }
                     if (--remains[0] == 0) {
-                        showDownloadCompleteNotification();
+                        writeDownloadState(this, downloadState);
+                        showDownloadCompletedNotification();
                         stopSelf();
                         for (Listener listener : listeners) {
                             listener.onDownloadCompleted();
