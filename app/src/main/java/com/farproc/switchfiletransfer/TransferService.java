@@ -300,7 +300,10 @@ public class TransferService extends Service {
 
         @Override
         public void onNetworkAvailable(Network network) {
-            startDownload(DEFAULT_HOST);
+            final String easterEggHost = getSharedPreferences("prefs", Context.MODE_PRIVATE).getString("easter_egg_host", "");
+            final String host = easterEggHost.isEmpty() ? DEFAULT_HOST : easterEggHost;
+            startDownload(host);
+
         }
 
         @Override

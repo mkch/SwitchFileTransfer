@@ -100,7 +100,29 @@ public class MainActivity extends AppCompatActivity {
     private void showVersion() {
         try {
             final PackageInfo pkg = getPackageManager().getPackageInfo(getPackageName(), 0);
-            ((TextView) findViewById(R.id.version)).setText(getString(R.string.fmt_version, pkg.versionName));
+            final TextView textView = findViewById(R.id.version);
+            final String easterEggHost = getSharedPreferences("prefs", Context.MODE_PRIVATE).getString("easter_egg_host", "");
+            if (easterEggHost.isEmpty()) {
+                textView.setText(getString(R.string.fmt_version, pkg.versionName));
+            } else {
+                textView.setText(getString(R.string.fmt_version_easter_egg, pkg.versionName, "host:" + easterEggHost));
+            }
+
+            final long[] lastClicked = new long[1];
+            final int[] clickedCount = new int[1];
+            textView.setOnClickListener((v) -> {
+                Log.i("EasterEgg", String.format("%d %d", clickedCount[0], System.currentTimeMillis() - lastClicked[0]));
+                if (lastClicked[0] == 0 || System.currentTimeMillis() - lastClicked[0] > 1000) {
+                    lastClicked[0] = System.currentTimeMillis();
+                    clickedCount[0] = 1;
+                } else if (++clickedCount[0] == 5) {
+                    if (getSupportFragmentManager().findFragmentByTag("easter_egg") == null) {
+                        new EasterEgg.Entrance().show(getSupportFragmentManager(), "easter_egg");
+                    }
+                    lastClicked[0] = System.currentTimeMillis();
+                    clickedCount[0] = 0;
+                }
+            });
         } catch (PackageManager.NameNotFoundException e) {
             Log.e("getPackageInfo", "", e);
         }
