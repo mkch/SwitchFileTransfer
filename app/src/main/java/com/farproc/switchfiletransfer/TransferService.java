@@ -242,6 +242,11 @@ public class TransferService extends Service {
         startForeground(FOREGROUND_NOTIFICATION_ID, builder.build());
     }
 
+    private void stop() {
+        stopForeground(true);
+        stopSelf();
+    }
+
     private void connect(@NonNull final String ssid, @NonNull final String password) {
         deleteSavedDownloadState(this);
         downloadState = null;
@@ -263,7 +268,7 @@ public class TransferService extends Service {
                 listener.onRemoveWifiNetworkError(ssid);
             }
             changeToState(State.Idle);
-            stopSelf();
+            stop();
         }
 
         @Override
@@ -272,7 +277,7 @@ public class TransferService extends Service {
                 listener.onAddWifiNetworkError();
             }
             changeToState(State.Idle);
-            stopSelf();
+            stop();
         }
 
         @Override
@@ -281,7 +286,7 @@ public class TransferService extends Service {
                 listener.onDisconnectWifiError();
             }
             changeToState(State.Idle);
-            stopSelf();
+            stop();
         }
 
         @Override
@@ -290,7 +295,7 @@ public class TransferService extends Service {
                 listener.onEnableWifiNetworkError();
             }
             changeToState(State.Idle);
-            stopSelf();
+            stop();
         }
 
         @Override
@@ -301,13 +306,13 @@ public class TransferService extends Service {
         @Override
         public void onNetworkUnavailable() {
             changeToState(State.Idle);
-            stopSelf();
+            stop();
         }
 
         @Override
         public void onNetworkLost() {
             changeToState(State.Idle);
-            stopSelf();
+            stop();
         }
     };
 
@@ -515,7 +520,7 @@ public class TransferService extends Service {
                     if (--remains[0] == 0) {
                         writeDownloadState(this, downloadState);
                         showDownloadCompletedNotification();
-                        stopSelf();
+                        stop();
                         for (Listener listener : listeners) {
                             listener.onDownloadCompleted();
                         }

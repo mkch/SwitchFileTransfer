@@ -61,7 +61,7 @@ public class MainActivity extends AppCompatActivity {
 
         // Used in ActivityResultCallback lambda.
         // requestPermissions must be registered before activity is started.
-        final WifiConfig[] wifiConfigToConnectAfterPermissionsGranted  = new WifiConfig[1];
+        final WifiConfig[] wifiConfigToConnectAfterPermissionsGranted = new WifiConfig[1];
         final ActivityResultLauncher<String[]> requestPermissions = registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), m -> {
             if (!m.containsValue(false)) {
                 connect(wifiConfigToConnectAfterPermissionsGranted[0]);
@@ -100,7 +100,7 @@ public class MainActivity extends AppCompatActivity {
     private void showVersion() {
         try {
             final PackageInfo pkg = getPackageManager().getPackageInfo(getPackageName(), 0);
-            ((TextView)findViewById(R.id.version)).setText(getString(R.string.fmt_version, pkg.versionName));
+            ((TextView) findViewById(R.id.version)).setText(getString(R.string.fmt_version, pkg.versionName));
         } catch (PackageManager.NameNotFoundException e) {
             Log.e("getPackageInfo", "", e);
         }

@@ -310,7 +310,44 @@ public abstract class Compat {
                     )
                     .build();
             final ConnectivityManager cm = (ConnectivityManager) context.getSystemService(CONNECTIVITY_SERVICE);
-            networkCallback = new NetworkCallback(context, listener);
+            networkCallback = new NetworkCallback(context, new Listener() {
+                @Override
+                public void onRemoveWifiNetworkError(String ssid) {
+                    listener.onRemoveWifiNetworkError(ssid);
+                }
+
+                @Override
+                public void onAddWifiNetworkError() {
+                    listener.onAddWifiNetworkError();
+                }
+
+                @Override
+                public void onDisconnectWifiError() {
+                    listener.onDisconnectWifiError();
+                }
+
+                @Override
+                public void onEnableWifiNetworkError() {
+                    listener.onEnableWifiNetworkError();
+                }
+
+                @Override
+                public void onNetworkAvailable(Network network) {
+                    listener.onNetworkAvailable(network);
+                }
+
+                @Override
+                public void onNetworkUnavailable() {
+                    networkCallback = null;
+                    listener.onNetworkUnavailable();
+                }
+
+                @Override
+                public void onNetworkLost() {
+                    networkCallback = null;
+                    listener.onNetworkLost();
+                }
+            });
             cm.requestNetwork(request, networkCallback);
         }
 
@@ -318,6 +355,11 @@ public abstract class Compat {
         public void disconnect(Context context, Listener listener) {
             if (networkCallback != null) {
                 ((ConnectivityManager) context.getSystemService(CONNECTIVITY_SERVICE)).unregisterNetworkCallback(networkCallback);
+                if (networkCallback.isNetworkAvailable()) {
+                    listener.onNetworkLost();
+                } else {
+                    listener.onNetworkUnavailable();
+                }
                 networkCallback = null;
             }
         }
@@ -327,6 +369,7 @@ public abstract class Compat {
         private static class NetworkCallback extends ConnectivityManager.NetworkCallback {
             private final Context context;
             private final Listener listener;
+            private boolean networkAvailable;
 
             public NetworkCallback(final Context context, final Listener listener) {
                 this.context = context;
@@ -341,6 +384,7 @@ public abstract class Compat {
                         // Just in case.
                         return;
                     }
+                    networkAvailable = true;
                     listener.onNetworkAvailable(network);
                 });
             }
@@ -348,13 +392,19 @@ public abstract class Compat {
             @Override
             public void onUnavailable() {
                 super.onUnavailable();
+                networkAvailable = false;
                 Application.handler.post(listener::onNetworkUnavailable);
             }
 
             @Override
             public void onLost(@NonNull Network network) {
                 super.onLost(network);
+                networkAvailable = false;
                 Application.handler.post(listener::onNetworkLost);
+            }
+
+            public boolean isNetworkAvailable() {
+                return networkAvailable;
             }
         }
 
