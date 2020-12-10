@@ -198,6 +198,7 @@ public class MainActivity extends AppCompatActivity {
 
     private TransferService.Binder serviceBinder;
     private ServiceListener serviceListener;
+    private static final String CONNECTING_PROMPT_FRAGMENT_TAG = "connecting";
 
     private class ServiceListener implements TransferService.Listener {
 
@@ -241,7 +242,6 @@ public class MainActivity extends AppCompatActivity {
             Log.i("MainActivity", "onDownloadCompleted");
         }
 
-        private static final String CONNECTING_PROMPT_FRAGMENT_TAG = "connecting";
 
         @Override
         public void onStateChanged(TransferService.State state) {

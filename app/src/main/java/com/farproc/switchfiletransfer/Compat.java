@@ -417,7 +417,11 @@ public abstract class Compat {
             values.put(MediaStore.Files.FileColumns.DISPLAY_NAME, fileName);
             values.put(MediaStore.Files.FileColumns.MEDIA_TYPE,
                     isVideo ? MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO : MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE);
-            return resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            try {
+                return resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            } catch (RuntimeException e) { // Can't create unique file.
+                return null;
+            }
         }
 
         @Override

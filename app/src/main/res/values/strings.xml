@@ -15,9 +15,10 @@
     <string name="notification_channel_default">Default</string>
     <string name="fmt_connecting_to">Connecting to %s ……</string>
     <string name="error">Error</string>
-    <string name="fmt_remaining">Downloading…… %d left.</string>
     <string name="default_console_name">Switch console</string>
     <string name="download_completed">Download completed.</string>
     <string name="fmt_version" translatable="false">v%s</string>
     <string name="fmt_version_easter_egg" translatable="false">v%s(%s)</string>
+    <string name="fmt_downloading">Downloading: %d%%</string>
+    <string name="downloading">Downloading</string>
 </resources>

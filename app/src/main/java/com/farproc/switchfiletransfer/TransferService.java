@@ -22,6 +22,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
@@ -35,7 +36,6 @@ import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.Reader;
 import java.io.Serializable;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
@@ -242,6 +242,19 @@ public class TransferService extends Service {
         startForeground(FOREGROUND_NOTIFICATION_ID, builder.build());
     }
 
+    private void startForegroundWithProgress(final String message, final  int percent, final boolean indeterminate) {
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NOTIFICATION_CH)
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setContentText(message)
+                .setProgress(100, percent, indeterminate)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setSilent(true);
+        if (downloadState != null) {
+            builder.setContentTitle(downloadState.consoleName);
+        }
+        startForeground(FOREGROUND_NOTIFICATION_ID, builder.build());
+    }
+
     private void stop() {
         stopForeground(true);
         stopSelf();
@@ -341,9 +354,9 @@ public class TransferService extends Service {
         final StringBuilder sb = new StringBuilder();
         final URL url = new URL(PROTOCOL, host, "data.json");
         final URLConnection conn = url.openConnection();
+        conn.setConnectTimeout(CONNECT_TIMEOUT);
+        conn.setReadTimeout(READ_TIMEOUT);
         conn.connect();
-        conn.setConnectTimeout(5000);
-        conn.setReadTimeout(2000);
         try (final Reader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
             int c = reader.read();
             while (c != -1) {
@@ -371,10 +384,13 @@ public class TransferService extends Service {
 
         public final boolean isVideo;
         public String fileUri;
+        public int size;
+        public int downloaded;
         public int state = STATE_DOWNLOADING;
 
         public DownloadItem(final boolean isVideo) {
             this.isVideo = isVideo;
+            this.size = -1;
         }
     }
 
@@ -422,6 +438,9 @@ public class TransferService extends Service {
     }
 
 
+    private static final int CONNECT_TIMEOUT = 3000;
+    private static final int READ_TIMEOUT = 5000;
+
     private DownloadState downloadState;
 
     private void startDownload(final String host) {
@@ -441,50 +460,73 @@ public class TransferService extends Service {
                     Log.e("readDataJson", "", e);
                 }
             }
-            final JsonData jsonData = data;
-            Application.handler.post(() -> {
-                if (jsonData == null) {
+            if (data == null) {
+                Application.handler.post(() -> {
                     for (Listener listener : listeners) {
                         listener.onParseTasksError();
                     }
                     Compat.Instance.disconnect(this, compatListener);
                     changeToState(State.Idle);
-                    return;
-                }
-
-                final DownloadItem[] downloadItems = new DownloadItem[jsonData.urls.length];
-                final URL[] urls = new URL[jsonData.urls.length];
-                try {
-                    for (int i = 0; i < jsonData.urls.length; i++) {
-                        downloadItems[i] = new DownloadItem(jsonData.urls[i].endsWith(".mp4"));
-                        urls[i] = new URL(jsonData.urls[i]);
+                });
+                return;
+            }
+            final String consoleName = data.consoleName;
+            final URL[] urls = new URL[data.urls.length];
+            final DownloadItem[] downloadItems = new DownloadItem[data.urls.length];
+            final URLConnection[] connections = new URLConnection[data.urls.length];
+            try {
+                for (int i = 0; i < data.urls.length; i++) {
+                    downloadItems[i] = new DownloadItem(data.urls[i].endsWith(".mp4"));
+                    urls[i] = new URL(data.urls[i]);
+                    connections[i] = urls[i].openConnection();
+                    connections[i].setConnectTimeout(CONNECT_TIMEOUT);
+                    connections[i].setReadTimeout(READ_TIMEOUT);
+                    connections[i].connect();
+                    final String contentLength = connections[i].getHeaderField("Content-Length");
+                    try {
+                        downloadItems[i].size = Integer.parseInt(contentLength);
+                    } catch (NumberFormatException e) {
+                        downloadItems[i].size = -1;
                     }
-                } catch (MalformedURLException e) {
+                }
+            } catch (IOException e) {
+                Application.handler.post(() -> {
                     Log.e("data.json", "url", e);
                     for (Listener listener : listeners) {
                         listener.onParseTasksError();
                     }
                     Compat.Instance.disconnect(this, compatListener);
                     changeToState(State.Idle);
-                    return;
-                }
-                String consoleName = jsonData.consoleName;
-                if (consoleName == null || consoleName.isEmpty()) {
-                    consoleName = getString(R.string.default_console_name);
-                }
+                });
+                return;
+            }
+            Application.handler.post(() -> {
                 downloadState = new DownloadState(consoleName, downloadItems);
                 changeToState(State.Downloading);
-                startDownload(urls);
+                startDownload(urls, connections);
             });
         });
     }
 
-    private void startDownload(final URL[] urls) {
+    private static final int DOWNLOAD_PROGRESS_GRANULARITY = 1024*100;
+
+    private void startDownload(final URL[] urls, final URLConnection[] connections) {
         // Should be `int remains = downloadItems.length`, but it will be used in anonymous class.
         final int[] remains = new int[]{downloadState.items.length};
-        startForegroundWithNotification(getString(R.string.fmt_remaining, remains[0]));
+        startForegroundWithProgress(getString(R.string.downloading), 0, true);
+        long total = 0;
+        for(final DownloadItem item:downloadState.items) {
+            if(item.size == -1) {
+                total = -1;
+                break;
+            }
+            total += item.size;
+        }
+        final long totalSizeToDownload = total;
+
         for (int i = 0; i < urls.length; i++) {
             final URL url = urls[i];
+            final URLConnection conn = connections[i];
             final DownloadItem item = downloadState.items[i];
             final int pos = i;
             item.fileUri = Compat.Instance.createDownloadFile(this, new File(url.getPath()).getName(), item.isVideo).toString();
@@ -503,14 +545,36 @@ public class TransferService extends Service {
             executor.execute(() -> {
                 try {
                     try (OutputStream outputStream = new BufferedOutputStream(getContentResolver().openOutputStream(Uri.parse(item.fileUri)));
-                         InputStream inputStream = url.openStream()) {
+                         InputStream inputStream = new BufferedInputStream(conn.getInputStream())) {
                         int c = inputStream.read();
+                        int downloadSize = 0;
                         while (c != -1) {
                             outputStream.write(c);
+                            downloadSize++;
+                            final int d = downloadSize;
+                            if (d % DOWNLOAD_PROGRESS_GRANULARITY == 0) {
+                                Application.handler.post(() -> {
+                                    item.downloaded = d;
+                                    for (final Listener listener : listeners) {
+                                        listener.onDownloadItemStateChanged(pos);
+                                    }
+                                    if(totalSizeToDownload != -1) {
+                                        long totalSizeDownloaded = 0;
+                                        for (DownloadItem item1 : downloadState.items) {
+                                            totalSizeDownloaded += item1.downloaded;
+                                        }
+                                        final int percent = Math.round(((float)(double)totalSizeDownloaded/totalSizeToDownload)*100);
+                                        startForegroundWithProgress(getString(R.string.fmt_downloading, percent), percent, false);
+                                    }
+                                });
+                            }
                             c = inputStream.read();
                         }
                     }
-                    Application.handler.post(() -> item.state = DownloadItem.STATE_COMPLETED);
+                    Application.handler.post(() -> {
+                        item.downloaded = item.size;
+                        item.state = DownloadItem.STATE_COMPLETED;
+                    });
                 } catch (IOException e) {
                     Application.handler.post(() -> item.state = DownloadItem.STATE_ERROR);
                     Log.e("download", "", e);
@@ -530,9 +594,6 @@ public class TransferService extends Service {
                         changeToState(State.Idle);
                         stopForeground(true);
                         Compat.Instance.disconnect(this, compatListener);
-                    } else {
-                        startForegroundWithNotification(getString(R.string.fmt_remaining, remains[0]));
-                        Log.i("Download", String.format("remaining: %d", remains[0]));
                     }
                 });
             });

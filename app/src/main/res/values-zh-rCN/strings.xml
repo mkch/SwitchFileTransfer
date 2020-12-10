@@ -15,7 +15,8 @@
     <string name="notification_channel_default">默认</string>
     <string name="fmt_connecting_to">正在连接 %s……</string>
     <string name="error">错误</string>
-    <string name="fmt_remaining">正在下载文件…… 还剩 %d 个</string>
     <string name="default_console_name">Switch 游戏机</string>
     <string name="download_completed">下载完成</string>
+    <string name="downloading">正在下载</string>
+    <string name="fmt_downloading">正在下载：%d%%</string>
 </resources>

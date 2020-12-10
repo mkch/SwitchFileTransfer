@@ -12,6 +12,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -20,6 +21,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.DividerItemDecoration;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.material.progressindicator.CircularProgressIndicator;
 
 import java.io.IOException;
 import java.util.Objects;
@@ -144,7 +147,6 @@ public class DownloadActivity extends AppCompatActivity {
 
         @Override
         public void onStateChanged(TransferService.State state) {
-            Log.i("DownloadActivity", "onStateChanged " + state);
             if (state == TransferService.State.Downloading) {
                 if (serviceBinder != null) {
                     downloadState = serviceBinder.getDownloadState();
@@ -207,7 +209,7 @@ public class DownloadActivity extends AppCompatActivity {
             final TransferService.DownloadItem item = downloadState.items[position];
             final Uri uri = Uri.parse(item.fileUri);
 
-            final View progressBar = holder.view.findViewById(R.id.progressBar);
+            final CircularProgressIndicator progressBar = holder.view.findViewById(R.id.progressBar);
             final ImageView imageView = holder.view.findViewById(R.id.imageView);
             final View videoPlay = holder.view.findViewById(R.id.video_play);
             final View errorView = holder.view.findViewById(R.id.error_view);
@@ -249,6 +251,15 @@ public class DownloadActivity extends AppCompatActivity {
                     break;
                 case TransferService.DownloadItem.STATE_DOWNLOADING:
                     progressBar.setVisibility(View.VISIBLE);
+                    if(item.size == -1 || item.downloaded == 0) {
+                        progressBar.setIndeterminate(true);
+                    } else {
+                        progressBar.setIndeterminate(false);
+                        progressBar.setMax(100);
+                        progressBar.setProgress(
+                                Math.round(((float)item.downloaded/item.size)*100)
+                        );
+                    }
                     errorView.setVisibility(View.GONE);
                     imageView.setVisibility(View.GONE);
                     videoPlay.setVisibility(View.GONE);
