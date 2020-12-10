@@ -248,6 +248,8 @@ public abstract class Compat {
                         break;
                     }
                 }
+            } else {
+                listener.onNetworkUnavailable();
             }
             connectionCleanup(context);
         }
