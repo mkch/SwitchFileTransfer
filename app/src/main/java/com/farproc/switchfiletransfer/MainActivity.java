@@ -249,15 +249,9 @@ public class MainActivity extends AppCompatActivity {
             final FragmentManager fm = getSupportFragmentManager();
             scanButton.setEnabled(state == TransferService.State.Idle);
             if (state != TransferService.State.Connecting) {
-                try {
-                    //connectionPrompt.dismiss();
-                    final Fragment f = fm.findFragmentByTag(CONNECTING_PROMPT_FRAGMENT_TAG);
-                    if (f != null) {
-                        ((ConnectingPrompt) f).dismiss();
-                    }
-                } catch (RuntimeException e) {
-                    // Do nothing.
-                    Log.e("MainActivity", "ConnectionPrompt", e);
+                final Fragment f = fm.findFragmentByTag(CONNECTING_PROMPT_FRAGMENT_TAG);
+                if (f != null) {
+                    ((ConnectingPrompt) f).dismiss();
                 }
             }
             switch (state) {
@@ -277,6 +271,7 @@ public class MainActivity extends AppCompatActivity {
                     scanButton.setEnabled(false);
                     if (fm.findFragmentByTag(CONNECTING_PROMPT_FRAGMENT_TAG) == null) {
                         new ConnectingPrompt().show(getSupportFragmentManager(), CONNECTING_PROMPT_FRAGMENT_TAG);
+                        fm.executePendingTransactions();
                     }
                     break;
                 default:
