@@ -25,7 +25,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.SwitchFileTransfer">
-        <activity android:name=".MainActivity">
+        <activity android:name=".MainActivity"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
@@ -33,7 +34,8 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".DownloadActivity" />
+        <activity android:name=".DownloadActivity"
+            android:launchMode="singleTask" />
 
         <!-- Allow the zxing scanning activity to rotate according to the sensor. -->
         <activity

@@ -19,4 +19,6 @@
     <string name="download_completed">下载完成</string>
     <string name="downloading">正在下载</string>
     <string name="fmt_downloading">正在下载：%d%%</string>
+    <string name="cancel_download_prompt">确定要取消下载吗？</string>
+    <string name="disconnecting">正在取消……</string>
 </resources>

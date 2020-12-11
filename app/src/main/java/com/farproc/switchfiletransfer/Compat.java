@@ -420,7 +420,19 @@ public abstract class Compat {
             try {
                 return resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             } catch (RuntimeException e) { // Can't create unique file.
-                return null;
+                String base = fileName;
+                String ext = "";
+                final int dot = fileName.indexOf(".");
+                if (dot != 0) {
+                    base = fileName.substring(0, dot);
+                    ext = fileName.substring(dot);
+                }
+                values.put(MediaStore.Files.FileColumns.DISPLAY_NAME, String.format(Locale.US, "%s-%d%s", base, System.currentTimeMillis(), ext));
+                try {
+                    return resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                } catch (RuntimeException e1) { // Can't create unique file again.
+                    return null;
+                }
             }
         }
 

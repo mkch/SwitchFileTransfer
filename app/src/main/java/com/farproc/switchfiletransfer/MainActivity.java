@@ -152,6 +152,7 @@ public class MainActivity extends AppCompatActivity {
     private Runnable runAfterServiceBound;
 
     private void bindTransferService() {
+        Log.i("MainActivity", "bindTransferService");
         if (serviceConnection == null) {
             serviceConnection = new ServiceConnection();
             TransferService.bind(this, serviceConnection);
@@ -159,6 +160,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void unbindTransferService() {
+        Log.i("MainActivity", "unbindTransferService");
         if (serviceConnection != null) {
             unbindService(serviceConnection);
             serviceConnection = null;
@@ -187,6 +189,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onServiceDisconnected(ComponentName name) {
             Log.i("MainActivity", "Service onServiceDisconnected");
+            runAfterServiceBound = null;
             if (serviceListener != null) {
                 serviceBinder.removeListener(serviceListener);
                 serviceListener = null;
@@ -229,7 +232,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onCreateFileError() {
-            Toast.makeText(getApplicationContext(), R.string.can_not_parse_data, Toast.LENGTH_LONG).show();
+            Toast.makeText(getApplicationContext(), R.string.can_not_create_file, Toast.LENGTH_LONG).show();
         }
 
         @Override
@@ -273,6 +276,9 @@ public class MainActivity extends AppCompatActivity {
                         new ConnectingPrompt().show(getSupportFragmentManager(), CONNECTING_PROMPT_FRAGMENT_TAG);
                         fm.executePendingTransactions();
                     }
+                    break;
+                case Disconnecting:
+                    Toast.makeText(getApplicationContext(), R.string.disconnecting, Toast.LENGTH_SHORT).show();
                     break;
                 default:
                     scanButton.setEnabled(false);

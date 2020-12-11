@@ -13,7 +13,7 @@
     <string name="can_not_create_file">Can\'t create file!</string>
     <string name="wifi_is_off">Turn on Wi-Fi first</string>
     <string name="notification_channel_default">Default</string>
-    <string name="fmt_connecting_to">Connecting to %s ……</string>
+    <string name="fmt_connecting_to">Connecting to %s……</string>
     <string name="error">Error</string>
     <string name="default_console_name">Switch console</string>
     <string name="download_completed">Download completed.</string>
@@ -21,4 +21,6 @@
     <string name="fmt_version_easter_egg" translatable="false">v%s(%s)</string>
     <string name="fmt_downloading">Downloading: %d%%</string>
     <string name="downloading">Downloading</string>
+    <string name="cancel_download_prompt">Do you want to cancel the download?</string>
+    <string name="disconnecting">Disconnecting……</string>
 </resources>

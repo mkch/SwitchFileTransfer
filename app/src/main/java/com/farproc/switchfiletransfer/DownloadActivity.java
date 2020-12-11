@@ -1,23 +1,31 @@
 package com.farproc.switchfiletransfer;
 
+import android.app.AlertDialog;
+import android.app.Dialog;
 import android.app.NotificationManager;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
-import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.fragment.app.DialogFragment;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
 import androidx.recyclerview.widget.DividerItemDecoration;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -46,6 +54,13 @@ public class DownloadActivity extends AppCompatActivity {
         list.addItemDecoration(itemDecoration);
         list.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         setContentView(list);
+        registerReceiver(cancelReceiver, new IntentFilter(TransferService.CANCEL_ACTION));
+    }
+
+    @Override
+    protected void onDestroy() {
+        unregisterReceiver(cancelReceiver);
+        super.onDestroy();
     }
 
     private TransferService.Binder serviceBinder;
@@ -55,25 +70,45 @@ public class DownloadActivity extends AppCompatActivity {
         public void onServiceConnected(ComponentName name, IBinder service) {
             Log.i("DownloadActivity", "Service onServiceConnected");
             serviceBinder = (TransferService.Binder) service;
+            if (runAfterServiceBound != null) {
+                runAfterServiceBound.run();
+                runAfterServiceBound = null;
+            }
             downloadState = serviceBinder.getDownloadState();
             list.getAdapter().notifyDataSetChanged();
+            setTitle(downloadState.consoleName);
+            if (serviceBinder.getState() != TransferService.State.Downloading) {
+                dismissExitPrompt();
+            }
 
             if (serviceListener != null) {
                 throw new IllegalStateException("service listener was not removed properly.");
             }
             serviceListener = new ServiceListener();
             serviceBinder.addListener(serviceListener);
+
+            if (serviceBinder.getState() == TransferService.State.Idle && serviceBinder.getDownloadState() == null) {
+                finish();
+            }
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
             Log.i("DownloadActivity", "disconnected");
+            runAfterServiceBound = null;
             if (serviceListener != null) {
                 serviceBinder.removeListener(serviceListener);
                 serviceListener = null;
             }
             serviceBinder = null;
             serviceConnection = null;
+        }
+    }
+
+    private void dismissExitPrompt() {
+        final Fragment f = getSupportFragmentManager().findFragmentByTag(ExitPrompt.TAG);
+        if (f != null) {
+            ((ExitPrompt) f).dismiss();
         }
     }
 
@@ -129,19 +164,17 @@ public class DownloadActivity extends AppCompatActivity {
 
         @Override
         public void onCreateFileError() {
-            Toast.makeText(getApplicationContext(), R.string.can_not_parse_data, Toast.LENGTH_LONG).show();
+            Toast.makeText(getApplicationContext(), R.string.can_not_create_file, Toast.LENGTH_LONG).show();
             finish();
         }
 
         @Override
         public void onDownloadItemStateChanged(int pos) {
-            Log.i("DownloadActivity", String.format("onDownloadItemStateChanged %d", pos));
             list.getAdapter().notifyItemChanged(pos);
         }
 
         @Override
         public void onDownloadCompleted() {
-            Log.i("DownloadActivity", "onDownloadCompleted");
             removeDownloadCompletedNotification();
         }
 
@@ -155,6 +188,8 @@ public class DownloadActivity extends AppCompatActivity {
                 if (downloadState != null) {
                     setTitle(downloadState.consoleName);
                 }
+            } else {
+                dismissExitPrompt();
             }
         }
     }
@@ -162,6 +197,13 @@ public class DownloadActivity extends AppCompatActivity {
     private void removeDownloadCompletedNotification() {
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(TransferService.DOWNLOAD_COMPLETED_NOTIFICATION_ID);
     }
+
+    private BroadcastReceiver cancelReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            finish();
+        }
+    };
 
     @Override
     protected void onResume() {
@@ -184,6 +226,48 @@ public class DownloadActivity extends AppCompatActivity {
     public boolean onSupportNavigateUp() {
         finish();
         return true;
+    }
+
+    public static class ExitPrompt extends DialogFragment {
+        static final String TAG = "exit_prompt";
+
+        @NonNull
+        @Override
+        public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
+            return new AlertDialog.Builder(requireContext())
+                    .setMessage(R.string.cancel_download_prompt)
+                    .setPositiveButton(android.R.string.yes, (d, btn) -> {
+                        final DownloadActivity activity = (DownloadActivity) requireActivity();
+                        activity.cancelDownload();
+                        activity.finish();
+                    })
+                    .create();
+        }
+    }
+
+    private Runnable runAfterServiceBound;
+
+    void cancelDownload() {
+        if (serviceBinder != null) {
+            serviceBinder.disconnect();
+        } else {
+            runAfterServiceBound = () -> {
+                serviceBinder.disconnect();
+            };
+        }
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (serviceBinder != null && serviceBinder.getState() == TransferService.State.Downloading) {
+                final FragmentManager fm = getSupportFragmentManager();
+                new ExitPrompt().show(fm, ExitPrompt.TAG);
+                fm.executePendingTransactions();
+                return true;
+            }
+        }
+        return super.onKeyDown(keyCode, event);
     }
 
     private static class ListViewHolder extends RecyclerView.ViewHolder {
@@ -251,13 +335,13 @@ public class DownloadActivity extends AppCompatActivity {
                     break;
                 case TransferService.DownloadItem.STATE_DOWNLOADING:
                     progressBar.setVisibility(View.VISIBLE);
-                    if(item.size == -1 || item.downloaded == 0) {
+                    if (item.size == -1 || item.downloaded == 0) {
                         progressBar.setIndeterminate(true);
                     } else {
                         progressBar.setIndeterminate(false);
                         progressBar.setMax(100);
                         progressBar.setProgress(
-                                Math.round(((float)item.downloaded/item.size)*100)
+                                Math.round(((float) item.downloaded / item.size) * 100)
                         );
                     }
                     errorView.setVisibility(View.GONE);

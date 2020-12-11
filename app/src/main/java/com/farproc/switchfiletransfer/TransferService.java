@@ -4,9 +4,11 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.net.Network;
 import android.net.Uri;
@@ -44,6 +46,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TransferService extends Service {
     /**
@@ -73,6 +76,7 @@ public class TransferService extends Service {
          * Connecting to Wi-Fi.
          */
         Connecting,
+        Disconnecting,
         Downloading,
     }
 
@@ -127,6 +131,10 @@ public class TransferService extends Service {
     }
 
     public class Binder extends android.os.Binder {
+        public State getState() {
+            return state;
+        }
+
         public void addListener(Listener listener) {
             Objects.requireNonNull(listener);
             if (listeners.contains(listener)) {
@@ -180,6 +188,13 @@ public class TransferService extends Service {
         return START_NOT_STICKY;
     }
 
+    private BroadcastReceiver cancelReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            disconnect();
+        }
+    };
+
     @Override
     public void onCreate() {
         Log.i("TransferService", "Service onCreate");
@@ -187,11 +202,14 @@ public class TransferService extends Service {
         downloadState = readDownloadState(this);
         createNotificationChannel();
         changeToState(State.Idle);
+
+        registerReceiver(cancelReceiver, new IntentFilter(CANCEL_ACTION));
     }
 
     @Override
     public void onDestroy() {
         Log.i("TransferService", "Service onDestroy");
+        unregisterReceiver(cancelReceiver);
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(FOREGROUND_NOTIFICATION_ID);
         super.onDestroy();
     }
@@ -226,6 +244,8 @@ public class TransferService extends Service {
     private static final int FOREGROUND_NOTIFICATION_ID = 1;
     public static final int DOWNLOAD_COMPLETED_NOTIFICATION_ID = 2;
 
+    public static final String CANCEL_ACTION = "com.farproc.switchfiletransfer.action.CANCEL";
+
     private void startForegroundWithNotification() {
         startForegroundWithNotification(getString(R.string.connecting));
     }
@@ -235,6 +255,10 @@ public class TransferService extends Service {
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentText(message)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel,
+                        getString(android.R.string.cancel),
+                        PendingIntent.getBroadcast(getApplicationContext(), 0, new Intent(CANCEL_ACTION), 0))
+                .setContentIntent(PendingIntent.getActivity(getApplicationContext(), 0, new Intent(getApplicationContext(), MainActivity.class), 0))
                 .setSilent(true);
         if (downloadState != null) {
             builder.setContentTitle(downloadState.consoleName);
@@ -242,12 +266,19 @@ public class TransferService extends Service {
         startForeground(FOREGROUND_NOTIFICATION_ID, builder.build());
     }
 
-    private void startForegroundWithProgress(final String message, final  int percent, final boolean indeterminate) {
+    private void startForegroundWithProgress(final String message, final int percent, final boolean indeterminate) {
+        if (exiting.get()) {
+            return;
+        }
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NOTIFICATION_CH)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentText(message)
                 .setProgress(100, percent, indeterminate)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel,
+                        getString(android.R.string.cancel),
+                        PendingIntent.getBroadcast(getApplicationContext(), 0, new Intent(CANCEL_ACTION), 0))
+                .setContentIntent(PendingIntent.getActivity(getApplicationContext(), 0, new Intent(getApplicationContext(), DownloadActivity.class), 0))
                 .setSilent(true);
         if (downloadState != null) {
             builder.setContentTitle(downloadState.consoleName);
@@ -256,11 +287,17 @@ public class TransferService extends Service {
     }
 
     private void stop() {
+        Log.i("TransferService", "stopForeground");
         stopForeground(true);
         stopSelf();
     }
 
     private void connect(@NonNull final String ssid, @NonNull final String password) {
+        if (state != State.Idle) {
+            throw new IllegalStateException();
+        }
+        backgroundThreads = 0;
+        exiting.set(false);
         deleteSavedDownloadState(this);
         downloadState = null;
 
@@ -270,6 +307,15 @@ public class TransferService extends Service {
     }
 
     private void disconnect() {
+        if (state == State.Idle) {
+            return;
+        }
+        exiting.set(true);
+        if (backgroundThreads == 0) {
+            changeToState(State.Idle);
+        } else {
+            changeToState(State.Disconnecting);
+        }
         Compat.Instance.disconnect(this, compatListener);
     }
 
@@ -280,7 +326,9 @@ public class TransferService extends Service {
             for (Listener listener : listeners) {
                 listener.onRemoveWifiNetworkError(ssid);
             }
-            changeToState(State.Idle);
+            if (backgroundThreads == 0) {
+                changeToState(State.Idle);
+            }
             stop();
         }
 
@@ -289,7 +337,9 @@ public class TransferService extends Service {
             for (Listener listener : listeners) {
                 listener.onAddWifiNetworkError();
             }
-            changeToState(State.Idle);
+            if (backgroundThreads == 0) {
+                changeToState(State.Idle);
+            }
             stop();
         }
 
@@ -298,7 +348,9 @@ public class TransferService extends Service {
             for (Listener listener : listeners) {
                 listener.onDisconnectWifiError();
             }
-            changeToState(State.Idle);
+            if (backgroundThreads == 0) {
+                changeToState(State.Idle);
+            }
             stop();
         }
 
@@ -307,7 +359,9 @@ public class TransferService extends Service {
             for (Listener listener : listeners) {
                 listener.onEnableWifiNetworkError();
             }
-            changeToState(State.Idle);
+            if (backgroundThreads == 0) {
+                changeToState(State.Idle);
+            }
             stop();
         }
 
@@ -316,18 +370,23 @@ public class TransferService extends Service {
             final String easterEggHost = getSharedPreferences("prefs", Context.MODE_PRIVATE).getString("easter_egg_host", "");
             final String host = easterEggHost.isEmpty() ? DEFAULT_HOST : easterEggHost;
             startDownload(host);
-
         }
 
         @Override
         public void onNetworkUnavailable() {
-            changeToState(State.Idle);
+            exiting.set(true);
+            if (backgroundThreads == 0) {
+                changeToState(State.Idle);
+            }
             stop();
         }
 
         @Override
         public void onNetworkLost() {
-            changeToState(State.Idle);
+            exiting.set(true);
+            if (backgroundThreads == 0) {
+                changeToState(State.Idle);
+            }
             stop();
         }
     };
@@ -415,7 +474,7 @@ public class TransferService extends Service {
                 stream.writeObject(state);
             }
         } catch (IOException e) {
-            Log.e("TransferService", "writeDownloadState", e);
+            //Log.e("TransferService", "writeDownloadState", e);
         }
     }
 
@@ -426,7 +485,7 @@ public class TransferService extends Service {
                 return (DownloadState) stream.readObject();
             }
         } catch (Exception e) { // Catch all exceptions here. java.io.InvalidClassException etc.
-            Log.i("TransferService", "readDownloadState", e);
+            //Log.i("TransferService", "readDownloadState", e);
         }
         return null;
     }
@@ -443,7 +502,11 @@ public class TransferService extends Service {
 
     private DownloadState downloadState;
 
+    private int backgroundThreads;
+    private AtomicBoolean exiting = new AtomicBoolean();
+
     private void startDownload(final String host) {
+        backgroundThreads++;
         executor.execute(() -> {
             JsonData data = null;
             for (int retries = 0; retries < 3; retries++) {
@@ -453,6 +516,9 @@ public class TransferService extends Service {
                     break;
                 } catch (Exception e) {
                     Log.e("readDataJson", "", e);
+                }
+                if (exiting.get()) {
+                    break;
                 }
                 try {
                     Thread.sleep(1000 * (retries + 1));
@@ -466,6 +532,7 @@ public class TransferService extends Service {
                         listener.onParseTasksError();
                     }
                     Compat.Instance.disconnect(this, compatListener);
+                    --backgroundThreads;
                     changeToState(State.Idle);
                 });
                 return;
@@ -496,11 +563,17 @@ public class TransferService extends Service {
                         listener.onParseTasksError();
                     }
                     Compat.Instance.disconnect(this, compatListener);
+                    --backgroundThreads;
                     changeToState(State.Idle);
                 });
                 return;
             }
             Application.handler.post(() -> {
+                backgroundThreads--;
+                if (exiting.get()) {
+                    changeToState(State.Idle);
+                    return;
+                }
                 downloadState = new DownloadState(consoleName, downloadItems);
                 changeToState(State.Downloading);
                 startDownload(urls, connections);
@@ -508,15 +581,13 @@ public class TransferService extends Service {
         });
     }
 
-    private static final int DOWNLOAD_PROGRESS_GRANULARITY = 1024*100;
+    private static final int DOWNLOAD_PROGRESS_GRANULARITY = 1024 * 100;
 
     private void startDownload(final URL[] urls, final URLConnection[] connections) {
-        // Should be `int remains = downloadItems.length`, but it will be used in anonymous class.
-        final int[] remains = new int[]{downloadState.items.length};
         startForegroundWithProgress(getString(R.string.downloading), 0, true);
         long total = 0;
-        for(final DownloadItem item:downloadState.items) {
-            if(item.size == -1) {
+        for (final DownloadItem item : downloadState.items) {
+            if (item.size == -1) {
                 total = -1;
                 break;
             }
@@ -529,7 +600,8 @@ public class TransferService extends Service {
             final URLConnection conn = connections[i];
             final DownloadItem item = downloadState.items[i];
             final int pos = i;
-            item.fileUri = Compat.Instance.createDownloadFile(this, new File(url.getPath()).getName(), item.isVideo).toString();
+            final Uri uri = Compat.Instance.createDownloadFile(this, new File(url.getPath()).getName(), item.isVideo);
+            item.fileUri = uri == null ? null : uri.toString();
             if (item.fileUri == null) {
                 Log.e("download", "can't create file ");
                 for (Listener listener : listeners) {
@@ -540,15 +612,25 @@ public class TransferService extends Service {
                 return;
             }
 
-            Log.i("Download", String.format("remaining: %d", remains[0]));
-
+            if (exiting.get()) {
+                Log.i("TransferService", String.format("Should exit before starting file #%d", i));
+                changeToState(State.Idle);
+                return;
+            }
+            backgroundThreads++;
             executor.execute(() -> {
+                final AtomicBoolean aborted = new AtomicBoolean();
                 try {
                     try (OutputStream outputStream = new BufferedOutputStream(getContentResolver().openOutputStream(Uri.parse(item.fileUri)));
                          InputStream inputStream = new BufferedInputStream(conn.getInputStream())) {
                         int c = inputStream.read();
                         int downloadSize = 0;
                         while (c != -1) {
+                            if (exiting.get()) {
+                                Log.i("TransferService", "Abort downloading file");
+                                aborted.set(true);
+                                break;
+                            }
                             outputStream.write(c);
                             downloadSize++;
                             final int d = downloadSize;
@@ -558,12 +640,12 @@ public class TransferService extends Service {
                                     for (final Listener listener : listeners) {
                                         listener.onDownloadItemStateChanged(pos);
                                     }
-                                    if(totalSizeToDownload != -1) {
+                                    if (totalSizeToDownload != -1) {
                                         long totalSizeDownloaded = 0;
                                         for (DownloadItem item1 : downloadState.items) {
                                             totalSizeDownloaded += item1.downloaded;
                                         }
-                                        final int percent = Math.round(((float)(double)totalSizeDownloaded/totalSizeToDownload)*100);
+                                        final int percent = Math.round(((float) (double) totalSizeDownloaded / totalSizeToDownload) * 100);
                                         startForegroundWithProgress(getString(R.string.fmt_downloading, percent), percent, false);
                                     }
                                 });
@@ -571,29 +653,32 @@ public class TransferService extends Service {
                             c = inputStream.read();
                         }
                     }
-                    Application.handler.post(() -> {
-                        item.downloaded = item.size;
-                        item.state = DownloadItem.STATE_COMPLETED;
-                    });
+                    if (!aborted.get()) {
+                        Application.handler.post(() -> {
+                            item.downloaded = item.size;
+                            item.state = DownloadItem.STATE_COMPLETED;
+                        });
+                    }
                 } catch (IOException e) {
                     Application.handler.post(() -> item.state = DownloadItem.STATE_ERROR);
-                    Log.e("download", "", e);
+                    Log.e("TransferService", "Downloading", e);
                 }
                 Application.handler.post(() -> {
-                    //saveDownloadState();
                     for (Listener listener : listeners) {
                         listener.onDownloadItemStateChanged(pos);
                     }
-                    if (--remains[0] == 0) {
-                        writeDownloadState(this, downloadState);
-                        showDownloadCompletedNotification();
-                        stop();
-                        for (Listener listener : listeners) {
-                            listener.onDownloadCompleted();
+                    if (--backgroundThreads == 0) {
+                        Log.i("TransferService", "No more downloads");
+                        if (!exiting.get()) {
+                            writeDownloadState(this, downloadState);
+                            showDownloadCompletedNotification();
+                            for (Listener listener : listeners) {
+                                listener.onDownloadCompleted();
+                            }
                         }
-                        changeToState(State.Idle);
-                        stopForeground(true);
                         Compat.Instance.disconnect(this, compatListener);
+                        stop();
+                        changeToState(State.Idle);
                     }
                 });
             });

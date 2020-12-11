@@ -19,7 +19,7 @@ public class ConnectingPrompt extends DialogFragment {
     @Override
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         final AlertDialog dialog = new AlertDialog.Builder(requireContext())
-                .setMessage(R.string.connecting)
+                .setView(R.layout.connecting_prompt)
                 .setNegativeButton(android.R.string.cancel, (d, which) -> {
                     requireContext().sendBroadcast(new Intent(CANCEL_ACTION));
                 })
